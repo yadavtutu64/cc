@@ -690,6 +690,16 @@ def run_telegram_polling():
         return
 
     logger.info("🤖 Starting Telegram Cyber Bot Long-Polling listener...")
+    
+    # 1. Clear any conflicting active webhook so getUpdates works reliably
+    try:
+        del_wh_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/deleteWebhook?drop_pending_updates=false"
+        del_req = urllib.request.Request(del_wh_url, headers={"User-Agent": "KGS-Bot/2.0"})
+        with urllib.request.urlopen(del_req, timeout=10) as r:
+            logger.info("🔗 Cleared Telegram Webhooks to ensure polling receives messages.")
+    except Exception as wh_err:
+        logger.debug(f"deleteWebhook note: {wh_err}")
+
     offset = 0
 
     while True:
@@ -699,10 +709,15 @@ def run_telegram_polling():
             with urllib.request.urlopen(req, timeout=25) as response:
                 result = json.loads(response.read().decode('utf-8'))
                 
+            if not result.get("ok"):
+                logger.warning(f"Telegram getUpdates response not ok: {result}")
+                time.sleep(3)
+                continue
+
             updates = result.get("result", [])
             for upd in updates:
                 offset = upd.get("update_id", 0) + 1
-                msg = upd.get("message", {})
+                msg = upd.get("message") or upd.get("channel_post") or {}
                 text = (msg.get("text") or "").strip()
                 chat = msg.get("chat", {})
                 chat_id = chat.get("id")
