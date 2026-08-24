@@ -36,12 +36,21 @@ logger = logging.getLogger("KGSBot")
 # IST Timezone (UTC + 5:30)
 IST = timezone(timedelta(hours=5, minutes=30))
 
+def safe_int_env(key: str, default: int) -> int:
+    val = os.environ.get(key, "").strip()
+    if not val:
+        return default
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        return default
+
 # Environment Variables & Configuration
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
-TARGET_COUNT = int(os.environ.get("BATCH_COUNT", "100"))
-DAILY_UPDATE_HOUR_IST = int(os.environ.get("UPDATE_HOUR_IST", "5"))   # 5 AM IST
-DAILY_UPDATE_MINUTE_IST = int(os.environ.get("UPDATE_MINUTE_IST", "0"))
+TARGET_COUNT = safe_int_env("BATCH_COUNT", 100)
+DAILY_UPDATE_HOUR_IST = safe_int_env("UPDATE_HOUR_IST", 5)   # 5 AM IST
+DAILY_UPDATE_MINUTE_IST = safe_int_env("UPDATE_MINUTE_IST", 0)
 
 # Global Sync Lock & State
 SYNC_LOCK = threading.Lock()
