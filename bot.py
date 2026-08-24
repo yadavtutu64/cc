@@ -15,6 +15,7 @@ Description:
 import os
 import sys
 import json
+import re
 import time
 import urllib.request
 import urllib.parse
@@ -602,17 +603,16 @@ def format_hacker_start_ui() -> str:
         "<i>Autonomous scraper & API sync engine for Khan Global Studies batches.</i>\n\n"
         "⚡ <b>CYBER COMMAND INTERFACE:</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "🔥 <code>/kgs1000</code> - <b>Scrape &amp; Download 1000 Batches Master JSON</b>\n"
+        "🎯 <code>/kgs&lt;count&gt;</code> - <b>Dynamic Batch Scraper (e.g. <code>/kgs100</code>, <code>/kgs250</code>, <code>/kgs500</code>, <code>/kgs1000</code>)</b>\n"
         "📡 <code>/sync</code>    - <b>Trigger 100 Course Sync + LIVE Matrix Feed</b>\n"
         "🎬 <code>/video &lt;id&gt;</code> - <b>Direct Stream Video URL &amp; PDF Extractor</b> (e.g. <code>/video 561922</code>)\n"
         "⚡ <code>/update</code>  - Fast background database refresh\n"
-        "📁 <code>/getjson</code> - Download encrypted <code>kgs100.json</code> database\n"
-        "📁 <code>/getjson1000</code> - Download <code>kgs1000.json</code> database\n"
-        "📊 <code>/stats</code>   - Display current indexed batches, vids & notes\n"
+        "📁 <code>/getjson &lt;count&gt;</code> - Download <code>kgs&lt;count&gt;.json</code> database\n"
+        "📊 <code>/stats &lt;count&gt;</code>   - Display indexed batches, vids & notes\n"
         "🔍 <code>/search &lt;query&gt;</code> - Deep search courses by keyword\n"
         "⚙ <code>/status</code>  - Query server uptime & API endpoint health\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "🌐 <b>API Endpoints:</b> <code>/api/kgs100</code> | <code>/api/kgs1000</code> | <code>/api/video-details/:id</code>\n"
+        "🌐 <b>API Endpoints:</b> <code>/api/kgs100</code> | <code>/api/kgs1000</code> | <code>/api/kgs/:count</code>\n"
         "⏰ <b>Auto-Sync:</b> <code>Everyday @ 05:00 AM IST</code>\n"
         "<code>>>> Enter command to execute...</code>"
     )
@@ -809,67 +809,64 @@ def run_telegram_polling():
                 if text.startswith("/start") or text.startswith("/help"):
                     send_telegram_message(format_hacker_start_ui(), chat_id=chat_id)
 
-                elif text.startswith("/kgs1000") or text.startswith("/sync1000"):
+                # Dynamic /kgs<count> command (e.g. /kgs100, /kgs250, /kgs500, /kgs1000)
+                elif re.match(r"^/kgs(\d+)", text.lower()) or re.match(r"^/sync(\d+)", text.lower()):
+                    m = re.match(r"^/(?:kgs|sync)(\d+)", text.lower())
+                    custom_count = int(m.group(1)) if m else TARGET_COUNT
                     cmd_parts = text.split()
-                    # If user just wants the file and it already exists: /kgs1000 get
+                    
+                    target_filename = f"kgs{custom_count}.json"
+                    # If user asked to download existing file: /kgs1000 get
                     if len(cmd_parts) > 1 and cmd_parts[1].lower() in ["get", "file", "download"]:
-                        if os.path.exists("./kgs1000.json"):
-                            send_telegram_document("./kgs1000.json", caption="📄 <b>kgs1000.json database (1000 Batches)</b>", chat_id=chat_id)
+                        if os.path.exists(f"./{target_filename}"):
+                            send_telegram_document(f"./{target_filename}", caption=f"📄 <b>{target_filename} database ({custom_count} Batches)</b>", chat_id=chat_id)
                         else:
-                            send_telegram_message("⚠️ <code>kgs1000.json</code> not found yet. Starting 1000 batches live scrape...", chat_id=chat_id)
-                            threading.Thread(target=handle_live_sync_command, args=(str(chat_id), 1000), daemon=True).start()
+                            send_telegram_message(f"⚠️ <code>{target_filename}</code> not found. Starting {custom_count} batches live scrape...", chat_id=chat_id)
+                            threading.Thread(target=handle_live_sync_command, args=(str(chat_id), custom_count), daemon=True).start()
                     else:
-                        # Start 1000 batches sync
-                        threading.Thread(target=handle_live_sync_command, args=(str(chat_id), 1000), daemon=True).start()
+                        threading.Thread(target=handle_live_sync_command, args=(str(chat_id), custom_count), daemon=True).start()
 
                 elif text.startswith("/sync") or text.startswith("/update"):
                     # Launch sync in a separate thread so polling remains responsive
                     threading.Thread(target=handle_live_sync_command, args=(str(chat_id), TARGET_COUNT), daemon=True).start()
 
-                elif text.startswith("/getjson1000"):
-                    if os.path.exists("./kgs1000.json"):
-                        send_telegram_document("./kgs1000.json", caption="📄 <b>kgs1000.json database (1000 Batches)</b>", chat_id=chat_id)
-                    else:
-                        send_telegram_message("⚠️ <code>kgs1000.json</code> is not generated yet. Send <code>/kgs1000</code> to start 1000 batches extraction.", chat_id=chat_id)
-
                 elif text.startswith("/getjson"):
-                    if os.path.exists("./kgs100.json"):
-                        send_telegram_document("./kgs100.json", caption="📄 <b>kgs100.json database</b>", chat_id=chat_id)
+                    cmd_parts = text.split()
+                    target_file = "./kgs100.json"
+                    if len(cmd_parts) > 1 and cmd_parts[1].isdigit():
+                        c_num = cmd_parts[1]
+                        target_file = f"./kgs{c_num}.json"
+                    elif re.match(r"^/getjson(\d+)", text.lower()):
+                        c_num = re.match(r"^/getjson(\d+)", text.lower()).group(1)
+                        target_file = f"./kgs{c_num}.json"
+
+                    if os.path.exists(target_file):
+                        send_telegram_document(target_file, caption=f"📄 <b>{os.path.basename(target_file)} database</b>", chat_id=chat_id)
                     elif os.path.exists("./kgs1000.json"):
                         send_telegram_document("./kgs1000.json", caption="📄 <b>kgs1000.json database</b>", chat_id=chat_id)
+                    elif os.path.exists("./kgs100.json"):
+                        send_telegram_document("./kgs100.json", caption="📄 <b>kgs100.json database</b>", chat_id=chat_id)
                     else:
-                        send_telegram_message("⚠️ Database file is not generated yet. Send <code>/sync</code> or <code>/kgs1000</code> to start extraction.", chat_id=chat_id)
-
-                elif text.startswith("/stats1000"):
-                    if os.path.exists("./kgs1000.json"):
-                        with open("./kgs1000.json", "r", encoding="utf-8") as f:
-                            d = json.load(f)
-                        meta = d.get("metadata", {})
-                        stat_msg = (
-                            "<code>╔══════════════════════════════════════╗\n"
-                            "║   ⚡ KGS 1000 BATCHES DATABASE STATS   ║\n"
-                            "╚══════════════════════════════════════╝</code>\n"
-                            f"📅 Last Sync: <code>{meta.get('generated_at')}</code>\n"
-                            f"📚 Batches: <b>{meta.get('total_courses')}</b>\n"
-                            f"📖 Subjects: <b>{meta.get('total_subjects')}</b>\n"
-                            f"🎥 Video Lectures: <b>{meta.get('total_videos')}</b>\n"
-                            f"📄 PDF Notes: <b>{meta.get('total_notes')}</b>\n"
-                            f"⏱ Gen Time: <code>{meta.get('execution_time_seconds')}s</code>\n"
-                            f"🌐 API URL: <code>/api/kgs1000</code>"
-                        )
-                        send_telegram_message(stat_msg, chat_id=chat_id)
-                    else:
-                        send_telegram_message("⚠️ <code>kgs1000.json</code> not found yet. Send <code>/kgs1000</code> to generate.", chat_id=chat_id)
+                        send_telegram_message("⚠️ Database file is not generated yet. Send <code>/kgs100</code> or <code>/kgs1000</code> to start extraction.", chat_id=chat_id)
 
                 elif text.startswith("/stats") or text.startswith("/status"):
-                    file_to_check = "./kgs100.json" if os.path.exists("./kgs100.json") else ("./kgs1000.json" if os.path.exists("./kgs1000.json") else None)
-                    if file_to_check:
-                        with open(file_to_check, "r", encoding="utf-8") as f:
+                    cmd_parts = text.split()
+                    target_file = "./kgs100.json"
+                    if len(cmd_parts) > 1 and cmd_parts[1].isdigit():
+                        target_file = f"./kgs{cmd_parts[1]}.json"
+                    elif re.match(r"^/stats(\d+)", text.lower()):
+                        c_num = re.match(r"^/stats(\d+)", text.lower()).group(1)
+                        target_file = f"./kgs{c_num}.json"
+                    elif not os.path.exists(target_file) and os.path.exists("./kgs1000.json"):
+                        target_file = "./kgs1000.json"
+
+                    if os.path.exists(target_file):
+                        with open(target_file, "r", encoding="utf-8") as f:
                             d = json.load(f)
                         meta = d.get("metadata", {})
                         stat_msg = (
                             "<code>╔══════════════════════════════════════╗\n"
-                            "║     ⚡ KGS DATABASE CYBER STATS      ║\n"
+                            f"║   ⚡ {os.path.basename(target_file).upper()} DATABASE STATS   ║\n"
                             "╚══════════════════════════════════════╝</code>\n"
                             f"📅 Last Sync: <code>{meta.get('generated_at')}</code>\n"
                             f"📚 Batches: <b>{meta.get('total_courses')}</b>\n"
@@ -877,11 +874,11 @@ def run_telegram_polling():
                             f"🎥 Video Lectures: <b>{meta.get('total_videos')}</b>\n"
                             f"📄 PDF Notes: <b>{meta.get('total_notes')}</b>\n"
                             f"⏱ Gen Time: <code>{meta.get('execution_time_seconds')}s</code>\n"
-                            f"🌐 API URL: <code>/api/kgs100</code>"
+                            f"🌐 File: <code>/{os.path.basename(target_file)}</code>"
                         )
                         send_telegram_message(stat_msg, chat_id=chat_id)
                     else:
-                        send_telegram_message("⚠️ Database file not found yet. Send <code>/sync</code> or <code>/kgs1000</code> to generate.", chat_id=chat_id)
+                        send_telegram_message(f"⚠️ <code>{os.path.basename(target_file)}</code> not found yet. Send <code>/kgs100</code> or <code>/kgs1000</code> to generate.", chat_id=chat_id)
 
                 elif text.startswith("/video") or text.startswith("/v ") or text.startswith("/vid"):
                     raw_id = text.replace("/video", "").replace("/vid", "").replace("/v", "").strip()
@@ -950,40 +947,123 @@ def run_telegram_polling():
             logger.error(f"Polling loop exception: {err}")
             time.sleep(3)
 
+def interactive_terminal_prompt():
+    """Interactive command-line interface when bot.py is executed directly without flags in a terminal."""
+    print("=" * 65)
+    print("⚡ STUDYAPKMOD - KGS CYBER TERMINAL & DYNAMIC SCRAPER ⚡")
+    print("=" * 65)
+    print("📌 Select an option:")
+    print("  1. Enter batch count (e.g. 100, 250, 500, 1000) or command (/kgs100, /kgs1000)")
+    print("  2. Start Telegram Bot polling daemon (/kgs<count>, /sync, /video)")
+    print("  3. Run daily 5:00 AM IST scheduler")
+    print("  4. Quick Scrape Top 100 Batches (kgs100.json)")
+    print("  5. Full Scrape Top 1000 Batches (kgs1000.json)")
+    print("  q. Exit")
+    print("=" * 65)
+
+    try:
+        user_choice = input("👉 Enter choice / command [default: /kgs100]: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print("\nExiting...")
+        return
+
+    if not user_choice or user_choice in ["1", "/kgs100", "100"]:
+        target_count = 100
+        if user_choice == "1":
+            try:
+                raw_num = input("🔢 How many latest batches do you want to scrape? [e.g. 50, 100, 500, 1000]: ").strip()
+                target_count = int(re.sub(r"\D", "", raw_num)) if re.sub(r"\D", "", raw_num) else 100
+            except ValueError:
+                target_count = 100
+        elif re.match(r"^/kgs(\d+)", user_choice.lower()):
+            target_count = int(re.match(r"^/kgs(\d+)", user_choice.lower()).group(1))
+        elif user_choice.isdigit():
+            target_count = int(user_choice)
+
+        print(f"\n🚀 Starting live scraping for Top {target_count} Batches...")
+        run_update_pipeline(count=target_count, send_telegram=False)
+
+    elif re.match(r"^/kgs(\d+)", user_choice.lower()):
+        target_count = int(re.match(r"^/kgs(\d+)", user_choice.lower()).group(1))
+        print(f"\n🚀 Starting live scraping for Top {target_count} Batches...")
+        run_update_pipeline(count=target_count, send_telegram=False)
+
+    elif user_choice in ["2", "poll", "/poll"]:
+        print("\n🤖 Starting Telegram Bot polling...")
+        scheduler_thread = threading.Thread(
+            target=run_daily_scheduler,
+            args=(DAILY_UPDATE_HOUR_IST, DAILY_UPDATE_MINUTE_IST, TARGET_COUNT),
+            daemon=True
+        )
+        scheduler_thread.start()
+        run_telegram_polling()
+
+    elif user_choice in ["3", "schedule"]:
+        print(f"\n⏰ Starting daily scheduler (5:00 AM IST)...")
+        run_daily_scheduler(target_hour=DAILY_UPDATE_HOUR_IST, target_minute=DAILY_UPDATE_MINUTE_IST, count=TARGET_COUNT)
+
+    elif user_choice in ["4", "100"]:
+        print("\n🚀 Scraping Top 100 Batches -> kgs100.json...")
+        run_update_pipeline(count=100, send_telegram=False)
+
+    elif user_choice in ["5", "1000", "/kgs1000"]:
+        print("\n🚀 Scraping Top 1000 Batches -> kgs1000.json...")
+        run_update_pipeline(count=1000, send_telegram=False)
+
+    elif user_choice.lower() in ["q", "exit", "quit"]:
+        print("Goodbye!")
+        return
+    else:
+        # If user passed a number directly (e.g. 200, 500)
+        digits = re.sub(r"\D", "", user_choice)
+        if digits:
+            cnt = int(digits)
+            print(f"\n🚀 Scraping Top {cnt} Batches -> kgs{cnt}.json...")
+            run_update_pipeline(count=cnt, send_telegram=False)
+        else:
+            print(f"Unknown input '{user_choice}', scraping default Top 100 Batches...")
+            run_update_pipeline(count=100, send_telegram=False)
+
 def main():
-    parser = argparse.ArgumentParser(description="KGS 100 Batches Cyber Scraper & Telegram Bot")
-    parser.add_argument("--now", action="store_true", help="Run scrape immediately and save kgs100.json")
+    parser = argparse.ArgumentParser(description="KGS Dynamic Batches Cyber Scraper & Telegram Bot")
+    parser.add_argument("--now", action="store_true", help="Run scrape immediately and save kgs<count>.json")
     parser.add_argument("--telegram", action="store_true", help="Run scrape and upload to Telegram")
     parser.add_argument("--schedule", action="store_true", help="Start background daily 5:00 AM IST scheduler")
-    parser.add_argument("--poll", action="store_true", help="Start Telegram Bot command polling (/start, /sync, /update, /stats, /getjson)")
-    parser.add_argument("--count", type=int, default=TARGET_COUNT, help="Number of latest batches to scrape (default: 100)")
+    parser.add_argument("--poll", action="store_true", help="Start Telegram Bot command polling (/start, /kgs<count>, /sync, /video)")
+    parser.add_argument("--count", type=int, default=None, help="Number of latest batches to scrape (e.g. 100, 250, 500, 1000)")
     parser.add_argument("--hour", type=int, default=DAILY_UPDATE_HOUR_IST, help="Daily update hour in IST (default: 5)")
     parser.add_argument("--minute", type=int, default=DAILY_UPDATE_MINUTE_IST, help="Daily update minute in IST (default: 0)")
 
     args = parser.parse_args()
 
-    # Print banner
-    print("=" * 60)
-    print("⚡ STUDYAPKMOD - KGS CYBER TERMINAL & LIVE SYNC ENGINE ⚡")
-    print("=" * 60)
+    # Determine batch count if provided
+    batch_count = args.count if args.count is not None else TARGET_COUNT
 
     if args.poll:
-        # Also run daily scheduler in background daemon thread while polling
+        print("=" * 60)
+        print("⚡ STUDYAPKMOD - KGS CYBER TERMINAL & LIVE SYNC ENGINE ⚡")
+        print("=" * 60)
         scheduler_thread = threading.Thread(
             target=run_daily_scheduler,
-            args=(args.hour, args.minute, args.count),
+            args=(args.hour, args.minute, batch_count),
             daemon=True
         )
         scheduler_thread.start()
         logger.info(f"🕒 Daily scheduler spawned in background (Trigger: {args.hour:02d}:{args.minute:02d} IST).")
         run_telegram_polling()
     elif args.schedule:
-        run_daily_scheduler(target_hour=args.hour, target_minute=args.minute, count=args.count)
+        run_daily_scheduler(target_hour=args.hour, target_minute=args.minute, count=batch_count)
     elif args.telegram:
-        run_update_pipeline(count=args.count, send_telegram=True)
+        run_update_pipeline(count=batch_count, send_telegram=True)
+    elif args.now or args.count is not None:
+        run_update_pipeline(count=batch_count, send_telegram=False)
     else:
-        # Default behavior: run scrape immediately
-        run_update_pipeline(count=args.count, send_telegram=False)
+        # Check if running interactively in terminal (TTY)
+        if sys.stdin.isatty():
+            interactive_terminal_prompt()
+        else:
+            # Non-interactive default execution
+            run_update_pipeline(count=batch_count, send_telegram=False)
 
 if __name__ == "__main__":
     main()
