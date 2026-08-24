@@ -48,7 +48,7 @@ def safe_int_env(key: str, default: int) -> int:
 # Environment Variables & Configuration
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8865625183:AAGA6gzI40j-AZxJLTFzyRGdiZqbmA2YsJc").strip()
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "6684860996").strip()
-TARGET_COUNT = safe_int_env("BATCH_COUNT", 1000)
+TARGET_COUNT = safe_int_env("BATCH_COUNT", 100)
 DAILY_UPDATE_HOUR_IST = safe_int_env("UPDATE_HOUR_IST", 5)   # 5 AM IST
 DAILY_UPDATE_MINUTE_IST = safe_int_env("UPDATE_MINUTE_IST", 0)
 
@@ -385,7 +385,7 @@ def build_cyber_progress_ui(completed_courses: int, total_courses: int, total_su
 
     lines = [
         "╔══════════════════════════════════════╗",
-        "║  ⚡ <b>KGS CYBER TERMINAL :: LIVE SYNC</b>  ║",
+        f"║  ⚡ <b>KGS CYBER TERMINAL :: {total_courses} BATCHES</b> ║",
         "╚══════════════════════════════════════╝",
         f"<b>[PROG]</b> <code>[{bar_visual}] {pct}% ({completed_courses}/{total_courses})</code>",
         f"<b>[STAT]</b> 📚 Batches: <code>{completed_courses}</code> | ⏱ Elapsed: <code>{elapsed}s</code>",
@@ -404,11 +404,14 @@ def build_cyber_progress_ui(completed_courses: int, total_courses: int, total_su
     lines.append("<code>>>> STATUS: INFILTRATING & AGGREGATING RAW DATA...</code>")
     return "\n".join(lines)
 
-def scrape_kgs_batches(limit: int = 100, max_threads: int = 12, live_chat_id: str = None, live_msg_id: int = None):
+def scrape_kgs_batches(limit: int = 100, max_threads: int = None, live_chat_id: str = None, live_msg_id: int = None):
     """
-    Main function to fetch all latest `limit` courses and compile `kgs100.json` with live Telegram terminal updates.
+    Main function to fetch all latest `limit` courses and compile `kgs100.json` / `kgs1000.json` with live Telegram terminal updates.
     """
     global IS_SYNCING
+    if max_threads is None:
+        max_threads = 20 if limit >= 500 else 12
+
     start_time = time.time()
     now_ist = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S IST")
     logger.info(f"🚀 Starting KGS Batches scrape for latest {limit} courses at {now_ist}...")
@@ -421,7 +424,7 @@ def scrape_kgs_batches(limit: int = 100, max_threads: int = 12, live_chat_id: st
 
     target_batches = raw_courses[:limit]
     total_target = len(target_batches)
-    logger.info(f"📦 Scraping top {total_target} latest batches...")
+    logger.info(f"📦 Scraping top {total_target} latest batches (Workers: {max_threads})...")
 
     all_courses_data = []
     completed_count = 0
@@ -476,7 +479,7 @@ def scrape_kgs_batches(limit: int = 100, max_threads: int = 12, live_chat_id: st
                 completed_count += 1
 
             now = time.time()
-            if live_chat_id and live_msg_id and (now - last_edit_time[0] >= 2.0 or completed_count == total_target):
+            if live_chat_id and live_msg_id and (now - last_edit_time[0] >= 2.2 or completed_count == total_target):
                 last_edit_time[0] = now
                 ui_text = build_cyber_progress_ui(
                     completed_count, total_target, grand_subjects, grand_videos, grand_notes, recent_logs, start_time
@@ -508,8 +511,19 @@ def scrape_kgs_batches(limit: int = 100, max_threads: int = 12, live_chat_id: st
         "courses": all_courses_data
     }
 
-    # 4. Save to files (`kgs100.json` and `public/kgs100.json`)
-    save_paths = ["./kgs100.json", "./public/kgs100.json"]
+    # 4. Save to files (`kgs100.json` or `kgs1000.json`)
+    file_prefix = f"kgs{limit}" if limit in [100, 500, 1000] else f"kgs_{limit}"
+    save_paths = [f"./{file_prefix}.json", f"./public/{file_prefix}.json"]
+    
+    # If scraping 1000, also save/update standard files if helpful
+    if limit >= 1000:
+        save_paths.extend(["./kgs1000.json", "./public/kgs1000.json"])
+    elif limit == 100:
+        save_paths.extend(["./kgs100.json", "./public/kgs100.json"])
+
+    # Remove duplicates
+    save_paths = list(set(save_paths))
+
     for path in save_paths:
         try:
             os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -535,19 +549,21 @@ def format_hacker_start_ui() -> str:
         "<i>Autonomous scraper & API sync engine for Khan Global Studies batches.</i>\n\n"
         "⚡ <b>CYBER COMMAND INTERFACE:</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "📡 <code>/sync</code>   - <b>Trigger 100 Course Sync + LIVE Matrix Feed</b>\n"
-        "⚡ <code>/update</code> - Fast background database refresh\n"
-        "📁 <code>/getjson</code>- Download encrypted <code>kgs100.json</code> database\n"
-        "📊 <code>/stats</code>  - Display current indexed batches, vids & notes\n"
+        "🔥 <code>/kgs1000</code> - <b>Scrape &amp; Download 1000 Batches Master JSON</b>\n"
+        "📡 <code>/sync</code>    - <b>Trigger 100 Course Sync + LIVE Matrix Feed</b>\n"
+        "⚡ <code>/update</code>  - Fast background database refresh\n"
+        "📁 <code>/getjson</code> - Download encrypted <code>kgs100.json</code> database\n"
+        "📁 <code>/getjson1000</code> - Download <code>kgs1000.json</code> database\n"
+        "📊 <code>/stats</code>   - Display current indexed batches, vids & notes\n"
         "🔍 <code>/search &lt;query&gt;</code> - Deep search courses by keyword\n"
-        "⚙ <code>/status</code> - Query server uptime & API endpoint health\n"
+        "⚙ <code>/status</code>  - Query server uptime & API endpoint health\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "🌐 <b>API Endpoint:</b> <code>/api/kgs100</code>\n"
+        "🌐 <b>API Endpoints:</b> <code>/api/kgs100</code> | <code>/api/kgs1000</code>\n"
         "⏰ <b>Auto-Sync:</b> <code>Everyday @ 05:00 AM IST</code>\n"
         "<code>>>> Enter command to execute...</code>"
     )
 
-def format_hacker_finish_ui(meta: dict, top_courses: list) -> str:
+def format_hacker_finish_ui(meta: dict, top_courses: list, target_file: str = "kgs100.json") -> str:
     """Matrix Hacker finished summary report."""
     gen_time = meta.get("generated_at", "Just now")
     tot_courses = meta.get("total_courses", 0)
@@ -555,6 +571,8 @@ def format_hacker_finish_ui(meta: dict, top_courses: list) -> str:
     tot_vids = meta.get("total_videos", 0)
     tot_notes = meta.get("total_notes", 0)
     exec_time = meta.get("execution_time_seconds", 0)
+
+    api_path = "/api/kgs1000" if "1000" in target_file else "/api/kgs100"
 
     msg = (
         "<code>╔══════════════════════════════════════╗\n"
@@ -581,43 +599,50 @@ def format_hacker_finish_ui(meta: dict, top_courses: list) -> str:
 
     msg += (
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "🌐 <b>LIVE API:</b> <code>/api/kgs100</code>\n"
-        "🔗 <b>FILE:</b> <code>/kgs100.json</code>\n"
+        f"🌐 <b>LIVE API:</b> <code>{api_path}</code>\n"
+        f"🔗 <b>FILE:</b> <code>/{target_file}</code>\n"
         "<code>>>> Database is ready for deployment.</code>"
     )
     return msg
 
 def handle_live_sync_command(chat_id: str, count: int = 100):
-    """Handles the /sync and /update command with live terminal UI."""
+    """Handles the /sync, /kgs1000 and /update command with live terminal UI."""
     global IS_SYNCING
     if not SYNC_LOCK.acquire(blocking=False):
         send_telegram_message("⚠️ <b>ACCESS DENIED:</b> Another sync process is already executing! Please wait.", chat_id=chat_id)
         return
 
     IS_SYNCING = True
+    target_file = f"kgs{count}.json" if count in [100, 1000] else f"kgs_{count}.json"
+    file_path = f"./{target_file}"
+    workers = 24 if count >= 500 else 12
+
     try:
         init_ui = (
             "╔══════════════════════════════════════╗\n"
-            "║  ⚡ <b>KGS CYBER TERMINAL :: INITIALIZING</b>  ║\n"
+            f"║  ⚡ <b>KGS CYBER TERMINAL :: {count} BATCHES</b>  ║\n"
             "╚══════════════════════════════════════╝\n"
-            "<code>[PROG] [░░░░░░░░░░░░░░] 0% (0/100)</code>\n"
+            f"<code>[PROG] [░░░░░░░░░░░░░░] 0% (0/{count})</code>\n"
             "<code>>>> CONNECTING TO KGS CLOUD MAINFRAME...</code>\n"
-            "<code>>>> TARGET: LATEST 100 BATCHES, SUBJECTS & VIDEOS</code>"
+            f"<code>>>> TARGET: LATEST {count} BATCHES, SUBJECTS & VIDEOS</code>"
         )
         msg_id = send_telegram_message(init_ui, chat_id=chat_id)
 
-        data = scrape_kgs_batches(limit=count, max_threads=12, live_chat_id=chat_id, live_msg_id=msg_id)
+        data = scrape_kgs_batches(limit=count, max_threads=workers, live_chat_id=chat_id, live_msg_id=msg_id)
         
         if data:
             meta = data.get("metadata", {})
             courses = data.get("courses", [])
-            final_report = format_hacker_finish_ui(meta, courses)
+            final_report = format_hacker_finish_ui(meta, courses, target_file=target_file)
             
             # Edit initial message with completed overview
             edit_telegram_message(msg_id, final_report, chat_id=chat_id)
             
             # Send file
-            send_telegram_document("./kgs100.json", caption=f"📄 <b>kgs100.json Database</b> [Generated: {meta.get('generated_at')}]", chat_id=chat_id)
+            if os.path.exists(file_path):
+                send_telegram_document(file_path, caption=f"📄 <b>{target_file} Database ({len(courses)} Batches)</b> [Generated: {meta.get('generated_at')}]", chat_id=chat_id)
+            elif os.path.exists("./kgs100.json"):
+                send_telegram_document("./kgs100.json", caption=f"📄 <b>kgs100.json Database</b> [Generated: {meta.get('generated_at')}]", chat_id=chat_id)
         else:
             edit_telegram_message(msg_id, "❌ <b>FATAL ERROR:</b> Scraper failed to fetch KGS batch lists. Check logs.", chat_id=chat_id)
     finally:
@@ -730,19 +755,62 @@ def run_telegram_polling():
                 if text.startswith("/start") or text.startswith("/help"):
                     send_telegram_message(format_hacker_start_ui(), chat_id=chat_id)
 
+                elif text.startswith("/kgs1000") or text.startswith("/sync1000"):
+                    cmd_parts = text.split()
+                    # If user just wants the file and it already exists: /kgs1000 get
+                    if len(cmd_parts) > 1 and cmd_parts[1].lower() in ["get", "file", "download"]:
+                        if os.path.exists("./kgs1000.json"):
+                            send_telegram_document("./kgs1000.json", caption="📄 <b>kgs1000.json database (1000 Batches)</b>", chat_id=chat_id)
+                        else:
+                            send_telegram_message("⚠️ <code>kgs1000.json</code> not found yet. Starting 1000 batches live scrape...", chat_id=chat_id)
+                            threading.Thread(target=handle_live_sync_command, args=(str(chat_id), 1000), daemon=True).start()
+                    else:
+                        # Start 1000 batches sync
+                        threading.Thread(target=handle_live_sync_command, args=(str(chat_id), 1000), daemon=True).start()
+
                 elif text.startswith("/sync") or text.startswith("/update"):
                     # Launch sync in a separate thread so polling remains responsive
                     threading.Thread(target=handle_live_sync_command, args=(str(chat_id), TARGET_COUNT), daemon=True).start()
 
+                elif text.startswith("/getjson1000"):
+                    if os.path.exists("./kgs1000.json"):
+                        send_telegram_document("./kgs1000.json", caption="📄 <b>kgs1000.json database (1000 Batches)</b>", chat_id=chat_id)
+                    else:
+                        send_telegram_message("⚠️ <code>kgs1000.json</code> is not generated yet. Send <code>/kgs1000</code> to start 1000 batches extraction.", chat_id=chat_id)
+
                 elif text.startswith("/getjson"):
                     if os.path.exists("./kgs100.json"):
                         send_telegram_document("./kgs100.json", caption="📄 <b>kgs100.json database</b>", chat_id=chat_id)
+                    elif os.path.exists("./kgs1000.json"):
+                        send_telegram_document("./kgs1000.json", caption="📄 <b>kgs1000.json database</b>", chat_id=chat_id)
                     else:
-                        send_telegram_message("⚠️ <code>kgs100.json</code> is not generated yet. Send <code>/sync</code> to start extraction.", chat_id=chat_id)
+                        send_telegram_message("⚠️ Database file is not generated yet. Send <code>/sync</code> or <code>/kgs1000</code> to start extraction.", chat_id=chat_id)
+
+                elif text.startswith("/stats1000"):
+                    if os.path.exists("./kgs1000.json"):
+                        with open("./kgs1000.json", "r", encoding="utf-8") as f:
+                            d = json.load(f)
+                        meta = d.get("metadata", {})
+                        stat_msg = (
+                            "<code>╔══════════════════════════════════════╗\n"
+                            "║   ⚡ KGS 1000 BATCHES DATABASE STATS   ║\n"
+                            "╚══════════════════════════════════════╝</code>\n"
+                            f"📅 Last Sync: <code>{meta.get('generated_at')}</code>\n"
+                            f"📚 Batches: <b>{meta.get('total_courses')}</b>\n"
+                            f"📖 Subjects: <b>{meta.get('total_subjects')}</b>\n"
+                            f"🎥 Video Lectures: <b>{meta.get('total_videos')}</b>\n"
+                            f"📄 PDF Notes: <b>{meta.get('total_notes')}</b>\n"
+                            f"⏱ Gen Time: <code>{meta.get('execution_time_seconds')}s</code>\n"
+                            f"🌐 API URL: <code>/api/kgs1000</code>"
+                        )
+                        send_telegram_message(stat_msg, chat_id=chat_id)
+                    else:
+                        send_telegram_message("⚠️ <code>kgs1000.json</code> not found yet. Send <code>/kgs1000</code> to generate.", chat_id=chat_id)
 
                 elif text.startswith("/stats") or text.startswith("/status"):
-                    if os.path.exists("./kgs100.json"):
-                        with open("./kgs100.json", "r", encoding="utf-8") as f:
+                    file_to_check = "./kgs100.json" if os.path.exists("./kgs100.json") else ("./kgs1000.json" if os.path.exists("./kgs1000.json") else None)
+                    if file_to_check:
+                        with open(file_to_check, "r", encoding="utf-8") as f:
                             d = json.load(f)
                         meta = d.get("metadata", {})
                         stat_msg = (
@@ -759,7 +827,7 @@ def run_telegram_polling():
                         )
                         send_telegram_message(stat_msg, chat_id=chat_id)
                     else:
-                        send_telegram_message("⚠️ Database file not found yet. Send <code>/sync</code> to generate.", chat_id=chat_id)
+                        send_telegram_message("⚠️ Database file not found yet. Send <code>/sync</code> or <code>/kgs1000</code> to generate.", chat_id=chat_id)
 
                 elif text.startswith("/search"):
                     query = text.replace("/search", "").strip().lower()
@@ -767,11 +835,12 @@ def run_telegram_polling():
                         send_telegram_message("⚠️ <b>Syntax Error:</b> Provide search keyword: <code>/search upsc</code>", chat_id=chat_id)
                         continue
 
-                    if not os.path.exists("./kgs100.json"):
-                        send_telegram_message("⚠️ Database file not found yet. Send <code>/sync</code> first.", chat_id=chat_id)
+                    search_file = "./kgs1000.json" if os.path.exists("./kgs1000.json") else ("./kgs100.json" if os.path.exists("./kgs100.json") else None)
+                    if not search_file:
+                        send_telegram_message("⚠️ Database file not found yet. Send <code>/sync</code> or <code>/kgs1000</code> first.", chat_id=chat_id)
                         continue
 
-                    with open("./kgs100.json", "r", encoding="utf-8") as f:
+                    with open(search_file, "r", encoding="utf-8") as f:
                         d = json.load(f)
                     matches = [c for c in d.get("courses", []) if query in c.get("title", "").lower()]
 
