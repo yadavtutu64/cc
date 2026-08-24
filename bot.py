@@ -48,7 +48,7 @@ def safe_int_env(key: str, default: int) -> int:
 # Environment Variables & Configuration
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8865625183:AAGA6gzI40j-AZxJLTFzyRGdiZqbmA2YsJc").strip()
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "6684860996").strip()
-TARGET_COUNT = safe_int_env("BATCH_COUNT", 100)
+TARGET_COUNT = safe_int_env("BATCH_COUNT", 1000)
 DAILY_UPDATE_HOUR_IST = safe_int_env("UPDATE_HOUR_IST", 5)   # 5 AM IST
 DAILY_UPDATE_MINUTE_IST = safe_int_env("UPDATE_MINUTE_IST", 0)
 
