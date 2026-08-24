@@ -784,6 +784,14 @@ def main():
     print("=" * 60)
 
     if args.poll:
+        # Also run daily scheduler in background daemon thread while polling
+        scheduler_thread = threading.Thread(
+            target=run_daily_scheduler,
+            args=(args.hour, args.minute, args.count),
+            daemon=True
+        )
+        scheduler_thread.start()
+        logger.info(f"🕒 Daily scheduler spawned in background (Trigger: {args.hour:02d}:{args.minute:02d} IST).")
         run_telegram_polling()
     elif args.schedule:
         run_daily_scheduler(target_hour=args.hour, target_minute=args.minute, count=args.count)
