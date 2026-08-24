@@ -219,8 +219,22 @@ def send_telegram_document(file_path: str, caption: str = "", token: str = None,
         logger.error(f"Failed to send Telegram document: {e}")
         return False
 
-def fetch_lesson_details(subject_id: int):
-    """Fetch lesson details including videos and notes for a subject."""
+def fetch_single_video_details(video_id: int):
+    """Fetch resolved video stream URL and direct properties from KGS Video API."""
+    if not video_id:
+        return None
+    url = f"{VIDEO_BASE_URL}/{video_id}"
+    data = make_request(url, timeout=5, retries=1)
+    if isinstance(data, dict):
+        return {
+            "video_url": data.get("video_url") or data.get("url") or "",
+            "hd_video_url": data.get("hd_video_url") or "",
+            "extra_pdfs": data.get("pdfs", []) if isinstance(data.get("pdfs"), list) else []
+        }
+    return None
+
+def fetch_lesson_details(subject_id: int, resolve_videos: bool = True):
+    """Fetch lesson details including videos and notes for a subject with resolved video URLs."""
     url = f"{LESSON_BASE_URL}/{subject_id}"
     data = make_request(url, timeout=10)
     
@@ -233,17 +247,56 @@ def fetch_lesson_details(subject_id: int):
     # Process Videos
     raw_videos = data.get("videos", [])
     if isinstance(raw_videos, list):
+        # Concurrently resolve direct stream video_url for each video item
+        resolved_map = {}
+        vids_to_fetch = [
+            v.get("id") for v in raw_videos
+            if isinstance(v, dict) and v.get("id") and not v.get("video_url")
+        ]
+        
+        if resolve_videos and vids_to_fetch:
+            with ThreadPoolExecutor(max_workers=min(12, len(vids_to_fetch))) as vid_exec:
+                future_to_vid = {
+                    vid_exec.submit(fetch_single_video_details, vid_id): vid_id
+                    for vid_id in vids_to_fetch
+                }
+                for f in as_completed(future_to_vid):
+                    vid_id = future_to_vid[f]
+                    try:
+                        res = f.result()
+                        if res:
+                            resolved_map[vid_id] = res
+                    except Exception:
+                        pass
+
         for v in raw_videos:
             if not isinstance(v, dict):
                 continue
+            vid_id = v.get("id")
+            resolved_info = resolved_map.get(vid_id, {})
+            actual_video_url = v.get("video_url") or resolved_info.get("video_url") or ""
+            hd_video_url = v.get("hd_video_url") or resolved_info.get("hd_video_url") or ""
+            
+            # If still missing, provide direct video resolver fallback URL
+            if not actual_video_url and vid_id:
+                actual_video_url = f"https://studyapkmodkgs.vercel.app/api/video-details/{vid_id}"
+
+            pdfs = v.get("pdfs", []) if isinstance(v.get("pdfs"), list) else []
+            if resolved_info.get("extra_pdfs"):
+                for ep in resolved_info.get("extra_pdfs"):
+                    if ep not in pdfs:
+                        pdfs.append(ep)
+
             videos.append({
-                "id": v.get("id"),
+                "id": vid_id,
                 "name": v.get("name") or v.get("title") or "Class Lecture",
                 "thumb": v.get("thumb") or "https://i.postimg.cc/jd5wqHJ3/logo.png",
                 "published_at": v.get("published_at") or v.get("created_at"),
                 "duration": v.get("duration"),
-                "video_url": v.get("video_url"),
-                "pdfs": v.get("pdfs", []) if isinstance(v.get("pdfs"), list) else [],
+                "video_url": actual_video_url,
+                "hd_video_url": hd_video_url,
+                "video_details_url": f"https://studyapkmodkgs.vercel.app/api/video-details/{vid_id}" if vid_id else "",
+                "pdfs": pdfs,
             })
             
     # Process Notes / PDFs
@@ -551,6 +604,7 @@ def format_hacker_start_ui() -> str:
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         "🔥 <code>/kgs1000</code> - <b>Scrape &amp; Download 1000 Batches Master JSON</b>\n"
         "📡 <code>/sync</code>    - <b>Trigger 100 Course Sync + LIVE Matrix Feed</b>\n"
+        "🎬 <code>/video &lt;id&gt;</code> - <b>Direct Stream Video URL &amp; PDF Extractor</b> (e.g. <code>/video 561922</code>)\n"
         "⚡ <code>/update</code>  - Fast background database refresh\n"
         "📁 <code>/getjson</code> - Download encrypted <code>kgs100.json</code> database\n"
         "📁 <code>/getjson1000</code> - Download <code>kgs1000.json</code> database\n"
@@ -558,7 +612,7 @@ def format_hacker_start_ui() -> str:
         "🔍 <code>/search &lt;query&gt;</code> - Deep search courses by keyword\n"
         "⚙ <code>/status</code>  - Query server uptime & API endpoint health\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "🌐 <b>API Endpoints:</b> <code>/api/kgs100</code> | <code>/api/kgs1000</code>\n"
+        "🌐 <b>API Endpoints:</b> <code>/api/kgs100</code> | <code>/api/kgs1000</code> | <code>/api/video-details/:id</code>\n"
         "⏰ <b>Auto-Sync:</b> <code>Everyday @ 05:00 AM IST</code>\n"
         "<code>>>> Enter command to execute...</code>"
     )
@@ -828,6 +882,43 @@ def run_telegram_polling():
                         send_telegram_message(stat_msg, chat_id=chat_id)
                     else:
                         send_telegram_message("⚠️ Database file not found yet. Send <code>/sync</code> or <code>/kgs1000</code> to generate.", chat_id=chat_id)
+
+                elif text.startswith("/video") or text.startswith("/v ") or text.startswith("/vid"):
+                    raw_id = text.replace("/video", "").replace("/vid", "").replace("/v", "").strip()
+                    if not raw_id or not raw_id.isdigit():
+                        send_telegram_message("⚠️ <b>Syntax Error:</b> Provide numeric Video ID: <code>/video 561922</code>", chat_id=chat_id)
+                        continue
+
+                    vid_id = int(raw_id)
+                    send_telegram_message(f"🔍 <b>[CYBER EXTRACTION]</b> Resolving Video ID <code>{vid_id}</code> from KGS stream servers...", chat_id=chat_id)
+                    vinfo = fetch_single_video_details(vid_id)
+
+                    if not vinfo or (not vinfo.get("video_url") and not vinfo.get("extra_pdfs")):
+                        send_telegram_message(f"❌ <b>Error:</b> Video ID <code>{vid_id}</code> could not be resolved or does not exist.", chat_id=chat_id)
+                    else:
+                        v_url = vinfo.get("video_url") or "Not Available"
+                        hd_url = vinfo.get("hd_video_url")
+                        pdfs = vinfo.get("extra_pdfs", [])
+
+                        vmsg = (
+                            "<code>╔══════════════════════════════════════╗\n"
+                            f"║   🎬 KGS VIDEO STREAM :: ID {vid_id}   ║\n"
+                            "╚══════════════════════════════════════╝</code>\n"
+                            f"🔗 <b>Stream URL:</b>\n<code>{v_url}</code>\n\n"
+                        )
+                        if hd_url:
+                            vmsg += f"📺 <b>HD Quality:</b>\n<code>{hd_url}</code>\n\n"
+
+                        if pdfs:
+                            vmsg += "📄 <b>Attached PDF Notes:</b>\n"
+                            for p in pdfs[:5]:
+                                ptitle = p.get("title") or p.get("name") or "Lecture Note"
+                                purl = p.get("url") or p.get("pdf_url")
+                                vmsg += f"• <a href=\"{purl}\">{ptitle}</a>\n"
+                            vmsg += "\n"
+
+                        vmsg += f"🌐 <b>API Endpoint:</b> <code>/api/video-details/{vid_id}</code>"
+                        send_telegram_message(vmsg, chat_id=chat_id)
 
                 elif text.startswith("/search"):
                     query = text.replace("/search", "").strip().lower()
